@@ -1,32 +1,41 @@
 import React, { useEffect, useRef, useState } from "react";
 import api from "../api";
 
+/* ================= MAIN ================= */
+
 export default function VoucherSearch() {
   const [party, setParty] = useState("");
   const [vouchers, setVouchers] = useState([]);
-  const [showModal, setShowModal] = useState(false);
+  const [open, setOpen] = useState(false);
 
-  const load = async () => {
-    const res = await api.get("/api/vouchers", { params: { party } });
-    setVouchers(res.data);
-    setShowModal(true);
+  const search = async () => {
+    if (!party) return alert("Enter party name");
+
+    const res = await api.get("/api/vouchers", {
+      params: { party }
+    });
+
+    setVouchers(res.data || []);
+    setOpen(true);
   };
 
   return (
-    <div>
-      <h2>Party Voucher Search</h2>
+    <div style={{ padding: 20 }}>
+      <h2>Ledger Voucher Search</h2>
 
       <input
-        placeholder="Party Ledger Name"
         value={party}
         onChange={e => setParty(e.target.value)}
+        placeholder="Party Ledger Name"
       />
-      <button onClick={load}>Search</button>
+      <button onClick={search} style={{ marginLeft: 10 }}>
+        Search
+      </button>
 
-      {showModal && (
+      {open && (
         <VoucherModal
           vouchers={vouchers}
-          onClose={() => setShowModal(false)}
+          onClose={() => setOpen(false)}
         />
       )}
     </div>
@@ -36,61 +45,40 @@ export default function VoucherSearch() {
 /* ================= MODAL ================= */
 
 function VoucherModal({ vouchers, onClose }) {
-  const [fullscreen, setFullscreen] = useState(false);
-  const [active, setActive] = useState(0);
-  const modalRef = useRef();
+  const modalRef = useRef(null);
 
-  /* ESC + Keyboard nav */
+  // ESC close
   useEffect(() => {
-    const handler = e => {
+    const esc = e => {
       if (e.key === "Escape") onClose();
-      if (e.key === "ArrowDown")
-        setActive(a => Math.min(a + 1, vouchers.length - 1));
-      if (e.key === "ArrowUp")
-        setActive(a => Math.max(a - 1, 0));
-      if (e.key === "Enter") window.print();
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [vouchers.length, onClose]);
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [onClose]);
 
-  /* Click outside */
-  const outside = e => {
-    if (modalRef.current && !modalRef.current.contains(e.target)) {
-      onClose();
-    }
+  // Outside click
+  const outsideClick = e => {
+    if (!modalRef.current) return;
+    if (!modalRef.current.contains(e.target)) onClose();
   };
 
   return (
-    <div style={overlay} onMouseDown={outside}>
+    <div style={overlay} onClick={outsideClick}>
       <div
         ref={modalRef}
-        style={{ ...modal, ...(fullscreen ? fullscreenStyle : {}) }}
-        onMouseDown={e => e.stopPropagation()}
+        style={modal}
+        onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
         <div style={header}>
-          <b>Voucher Display</b>
-          <div>
-            <button onClick={() => setFullscreen(f => !f)}>
-              {fullscreen ? "Exit Fullscreen" : "Fullscreen"}
-            </button>
-            <button onClick={() => window.print()}>Print</button>
-            <button onClick={onClose}>✖</button>
-          </div>
+          <b>Voucher Display (Tally Style)</b>
+          <button onClick={onClose}>✖</button>
         </div>
 
-        {/* Body */}
         <div style={body}>
+          {vouchers.length === 0 && <p>No vouchers found</p>}
+
           {vouchers.map((v, i) => (
-            <div
-              key={v.GUID || i}
-              style={{
-                outline: i === active ? "2px solid blue" : "none"
-              }}
-            >
-              <VoucherCard v={v} />
-            </div>
+            <VoucherCard key={v.GUID || i} v={v} />
           ))}
         </div>
       </div>
@@ -102,17 +90,18 @@ function VoucherModal({ vouchers, onClose }) {
 
 function VoucherCard({ v }) {
   return (
-    <div style={{ border: "2px solid black", marginBottom: 20, padding: 10 }}>
+    <div style={voucherBox}>
       <Row label="Voucher Type" value={v.VOUCHERTYPENAME} />
       <Row label="Voucher No" value={v.VOUCHERNUMBER} />
       <Row label="Date" value={v.DATE} />
       <Row label="Party A/c" value={v.PARTYLEDGERNAME} />
 
+      {/* Ledger Entries */}
       <Section title="Ledger Entries">
-        <table width="100%" border="1">
+        <table width="100%" border="1" cellPadding="5">
           <thead>
             <tr>
-              <th align="left">Ledger</th>
+              <th align="left">Ledger Name</th>
               <th align="right">Debit</th>
               <th align="right">Credit</th>
             </tr>
@@ -129,9 +118,10 @@ function VoucherCard({ v }) {
         </table>
       </Section>
 
+      {/* Inventory Entries */}
       {v.INVENTORYENTRIES?.length > 0 && (
         <Section title="Inventory Entries">
-          <table width="100%" border="1">
+          <table width="100%" border="1" cellPadding="5">
             <thead>
               <tr>
                 <th>Item</th>
@@ -154,25 +144,34 @@ function VoucherCard({ v }) {
         </Section>
       )}
 
-      {v.NARRATION && <Section title="Narration">{v.NARRATION}</Section>}
+      {v.NARRATION && (
+        <Section title="Narration">
+          <div>{v.NARRATION}</div>
+        </Section>
+      )}
     </div>
   );
 }
 
-/* ================= HELPERS ================= */
+/* ================= SMALL COMPONENTS ================= */
 
-const Row = ({ label, value }) => (
-  <div style={{ display: "flex" }}>
-    <b style={{ width: 140 }}>{label} :</b> {value}
-  </div>
-);
+function Row({ label, value }) {
+  return (
+    <div style={{ display: "flex", marginBottom: 4 }}>
+      <b style={{ width: 140 }}>{label} :</b>
+      <span>{value}</span>
+    </div>
+  );
+}
 
-const Section = ({ title, children }) => (
-  <div style={{ marginTop: 10 }}>
-    <b>{title}</b>
-    <div>{children}</div>
-  </div>
-);
+function Section({ title, children }) {
+  return (
+    <div style={{ marginTop: 10 }}>
+      <b>{title}</b>
+      <div>{children}</div>
+    </div>
+  );
+}
 
 /* ================= STYLES ================= */
 
@@ -180,7 +179,7 @@ const overlay = {
   position: "fixed",
   inset: 0,
   background: "rgba(0,0,0,0.5)",
-  zIndex: 999
+  zIndex: 1000
 };
 
 const modal = {
@@ -191,13 +190,6 @@ const modal = {
   maxHeight: "90vh",
   display: "flex",
   flexDirection: "column"
-};
-
-const fullscreenStyle = {
-  width: "100%",
-  height: "100%",
-  margin: 0,
-  maxWidth: "100%"
 };
 
 const header = {
@@ -211,4 +203,10 @@ const body = {
   padding: 10,
   overflowY: "auto",
   flex: 1
+};
+
+const voucherBox = {
+  border: "2px solid black",
+  padding: 10,
+  marginBottom: 20
 };
