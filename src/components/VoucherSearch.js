@@ -1,67 +1,76 @@
 import React, { useEffect, useState } from "react";
 
+const API = "https://tally-mongo-server.onrender.com";
+
 const VoucherSearch = () => {
   const [ledgerList, setLedgerList] = useState([]);
   const [selectedLedger, setSelectedLedger] = useState("");
   const [vouchers, setVouchers] = useState([]);
   const [showPopup, setShowPopup] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  // ================= FETCH LEDGER LIST =================
+  // ================= FETCH LEDGERS ON LOAD =================
+  useEffect(() => {
+    fetchLedgers();
+  }, []);
 
-useEffect(() => {
-  fetchLedgerList();
-}, []);
+  const fetchLedgers = async () => {
+    try {
+      const res = await fetch(`${API}/api/ledgers`);
+      const data = await res.json();
 
-const fetchLedgerList = async () => {
-  try {
-    const res = await fetch(
-      "https://tally-mongo-server.onrender.com/api/ledgers"
-    );
-    const data = await res.json();
+      const names = [
+        ...new Set(
+          (data || [])
+            .map(l => l.NAME)
+            .filter(n => n && n.trim() !== "")
+        )
+      ].sort();
 
-    // ✅ sirf ledger NAME, unique & non-empty
-    const names = [
-      ...new Set(
-        (data || [])
-          .map(l => l.NAME)
-          .filter(n => n && n.trim() !== "")
-      )
-    ].sort();
-
-    setLedgerList(names);
-  } catch (err) {
-    console.error("Ledger fetch error", err);
-  }
-};
-  
+      setLedgerList(names);
+    } catch (e) {
+      console.error("Ledger fetch error", e);
+    }
+  };
 
   // ================= SEARCH VOUCHERS =================
   const searchVouchers = async () => {
-    if (!selectedLedger) return;
+    if (!selectedLedger) {
+      alert("Please select a ledger");
+      return;
+    }
 
-    const res = await fetch("https://tally-mongo-server.onrender.com/api/vouchers");
-    const data = await res.json();
-
-    // ✅ ONLY selected ledger vouchers
-    const filtered = (data || []).filter(
-      v => v.PARTYLEDGERNAME === selectedLedger
-    );
-
-    setVouchers(filtered);
+    setLoading(true);
     setShowPopup(true);
+
+    try {
+      const res = await fetch(`${API}/api/vouchers`);
+      const data = await res.json();
+
+      const filtered = (data || []).filter(v =>
+        v.LEDGERENTRIES?.some(
+          le => le.LEDGERNAME === selectedLedger
+        )
+      );
+
+      setVouchers(filtered);
+    } catch (e) {
+      console.error("Voucher fetch error", e);
+      setVouchers([]);
+    }
+
+    setLoading(false);
   };
 
-  // ================= LEDGER GROUPING =================
-  const groupLedgers = (voucher) => {
+  // ================= GROUP LEDGER ENTRIES =================
+  const groupLedgers = entries => {
     const map = {};
 
-    (voucher.LEDGERENTRIES || []).forEach(e => {
+    (entries || []).forEach(e => {
       const name = e.LEDGERNAME;
       if (!map[name]) map[name] = { debit: 0, credit: 0 };
 
       const amt = Number(e.AMOUNT?.$numberDecimal || e.AMOUNT || 0);
-      if (!amt) return;
-
       if (amt < 0) map[name].debit += Math.abs(amt);
       else map[name].credit += amt;
     });
@@ -69,48 +78,50 @@ const fetchLedgerList = async () => {
     return map;
   };
 
-  const formatDate = d =>
-    d ? new Date(d).toLocaleDateString("en-GB") : "";
+  const fmt = n => n.toLocaleString("en-IN", { minimumFractionDigits: 2 });
 
+  // ================= UI =================
   return (
     <div>
-      {/* ===== LEDGER DROPDOWN INPUT ===== */}
-    <input
-  list="ledgerList"
-  placeholder="Select Ledger"
-  value={selectedLedger}
-  onChange={e => setSelectedLedger(e.target.value)}
-/>
-
-<datalist id="ledgerList">
-  {ledgerList.map((name, i) => (
-    <option key={i} value={name} />
-  ))}
-</datalist>
-  
+      {/* ===== LEDGER SELECT ===== */}
+      <select
+        value={selectedLedger}
+        onChange={e => setSelectedLedger(e.target.value)}
+      >
+        <option value="">-- Select Ledger --</option>
+        {ledgerList.map((l, i) => (
+          <option key={i} value={l}>{l}</option>
+        ))}
+      </select>
 
       <button onClick={searchVouchers}>Search</button>
 
-      {/* ================= POPUP ================= */}
+      {/* ===== POPUP ===== */}
       {showPopup && (
         <div style={overlay}>
           <div style={popup}>
             <button onClick={() => setShowPopup(false)}>✖</button>
 
-            {vouchers.map((v, i) => {
-              const ledgers = groupLedgers(v);
+            {loading && <p>Loading vouchers...</p>}
+
+            {!loading && vouchers.length === 0 && (
+              <p>No vouchers found</p>
+            )}
+
+            {!loading && vouchers.map((v, i) => {
+              const ledgers = groupLedgers(v.LEDGERENTRIES);
 
               return (
                 <div key={i} style={card}>
-                  {/* HEADER */}
+                  {/* ===== HEADER ===== */}
                   <div style={header}>
-                    <b>{v.VOUCHERTYPE}</b> No: {v.VOUCHERNUMBER}<br />
-                    Date: {formatDate(v.DATE)}<br />
+                    {v.VOUCHERTYPE} &nbsp; No: {v.VOUCHERNUMBER}<br />
+                    Date: {new Date(v.DATE).toLocaleDateString("en-GB")}<br />
                     Party: <b>{v.PARTYLEDGERNAME}</b>
                   </div>
 
-                  {/* INVENTORY */}
-                  {v.INVENTORYENTRIES?.some(i => i.STOCKITEMNAME) && (
+                  {/* ===== INVENTORY ===== */}
+                  {v.INVENTORYENTRIES?.some(x => x.STOCKITEMNAME) && (
                     <>
                       <hr />
                       <table width="100%">
@@ -130,7 +141,7 @@ const fetchLedgerList = async () => {
                                 <td>{it.BILLEDQTY}</td>
                                 <td>{it.RATE}</td>
                                 <td align="right">
-                                  ₹ {Number(it.AMOUNT?.$numberDecimal || 0).toFixed(2)}
+                                  ₹ {fmt(Number(it.AMOUNT?.$numberDecimal || 0))}
                                 </td>
                               </tr>
                             ) : null
@@ -140,7 +151,7 @@ const fetchLedgerList = async () => {
                     </>
                   )}
 
-                  {/* LEDGERS */}
+                  {/* ===== LEDGERS ===== */}
                   <hr />
                   <table width="100%">
                     <thead>
@@ -156,12 +167,12 @@ const fetchLedgerList = async () => {
                           <td>{name}</td>
                           <td align="right">
                             {ledgers[name].debit
-                              ? "₹ " + ledgers[name].debit.toFixed(2)
+                              ? `₹ ${fmt(ledgers[name].debit)}`
                               : ""}
                           </td>
                           <td align="right">
                             {ledgers[name].credit
-                              ? "₹ " + ledgers[name].credit.toFixed(2)
+                              ? `₹ ${fmt(ledgers[name].credit)}`
                               : ""}
                           </td>
                         </tr>
@@ -171,15 +182,11 @@ const fetchLedgerList = async () => {
 
                   <hr />
                   <div style={{ textAlign: "right", fontWeight: "bold" }}>
-                    Total : ₹ {Number(v.AMOUNT?.$numberDecimal || 0).toFixed(2)}
+                    Total : ₹ {fmt(Number(v.AMOUNT?.$numberDecimal || 0))}
                   </div>
                 </div>
               );
             })}
-
-            {vouchers.length === 0 && (
-              <p>No vouchers found.</p>
-            )}
           </div>
         </div>
       )}
