@@ -1,43 +1,51 @@
 import React, { useState } from "react";
 
 const VoucherSearch = () => {
-  const [ledgerName, setLedgerName] = useState("");
+  const [partyName, setPartyName] = useState("");
   const [vouchers, setVouchers] = useState([]);
   const [showPopup, setShowPopup] = useState(false);
 
+  // ================= SEARCH (PARTY WISE ONLY) =================
   const searchVouchers = async () => {
-    if (!ledgerName) return;
+    if (!partyName) return;
 
     const res = await fetch("https://tally-mongo-server.onrender.com/api/vouchers");
     const data = await res.json();
 
-    // ✅ show only vouchers where selected ledger exists
-    const filtered = (data || []).filter(v =>
-      (v.LEDGERENTRIES || []).some(le => le.LEDGERNAME === ledgerName)
+    // ✅ ONLY party-wise filter
+    const filtered = (data || []).filter(
+      v => v.PARTYLEDGERNAME === partyName
     );
 
     setVouchers(filtered);
     setShowPopup(true);
   };
 
-  // ✅ merge ledger entries + debit/credit by sign
+  // ================= LEDGER GROUPING (SIGN BASED) =================
   const getGroupedLedgers = (voucher) => {
     const grouped = {};
 
     (voucher.LEDGERENTRIES || []).forEach(entry => {
       const name = entry.LEDGERNAME;
-      if (!grouped[name]) grouped[name] = { debit: 0, credit: 0 };
+      if (!grouped[name]) {
+        grouped[name] = { debit: 0, credit: 0 };
+      }
 
-      let amt = entry.AMOUNT?.$numberDecimal
-        ? parseFloat(entry.AMOUNT.$numberDecimal)
-        : parseFloat(entry.AMOUNT);
+      let rawAmount = 0;
 
-      if (isNaN(amt)) return;
-
-      if (amt < 0) {
-        grouped[name].debit += Math.abs(amt);
+      if (entry.AMOUNT && typeof entry.AMOUNT === "object") {
+        rawAmount = Number(entry.AMOUNT.$numberDecimal);
       } else {
-        grouped[name].credit += Math.abs(amt);
+        rawAmount = Number(entry.AMOUNT);
+      }
+
+      if (isNaN(rawAmount) || rawAmount === 0) return;
+
+      // 🔴 FINAL RULE
+      if (rawAmount < 0) {
+        grouped[name].debit += Math.abs(rawAmount);
+      } else {
+        grouped[name].credit += rawAmount;
       }
     });
 
@@ -46,16 +54,15 @@ const VoucherSearch = () => {
 
   const formatDate = (d) => {
     if (!d) return "";
-    const date = new Date(d);
-    return date.toLocaleDateString("en-GB");
+    return new Date(d).toLocaleDateString("en-GB");
   };
 
   return (
     <div>
       <input
-        placeholder="Enter Ledger Name"
-        value={ledgerName}
-        onChange={e => setLedgerName(e.target.value)}
+        placeholder="Enter Party Name"
+        value={partyName}
+        onChange={e => setPartyName(e.target.value)}
       />
       <button onClick={searchVouchers}>Search</button>
 
@@ -78,7 +85,7 @@ const VoucherSearch = () => {
 
                   {/* ===== INVENTORY FIRST ===== */}
                   {v.INVENTORYENTRIES &&
-                    v.INVENTORYENTRIES.some(x => x.STOCKITEMNAME) && (
+                    v.INVENTORYENTRIES.some(it => it.STOCKITEMNAME) && (
                       <>
                         <hr />
                         <table width="100%">
@@ -98,10 +105,7 @@ const VoucherSearch = () => {
                                   <td>{it.BILLEDQTY}</td>
                                   <td>{it.RATE}</td>
                                   <td align="right">
-                                    ₹{" "}
-                                    {parseFloat(
-                                      it.AMOUNT?.$numberDecimal || 0
-                                    ).toFixed(2)}
+                                    ₹ {Number(it.AMOUNT?.$numberDecimal || 0).toFixed(2)}
                                   </td>
                                 </tr>
                               ) : null
@@ -126,12 +130,12 @@ const VoucherSearch = () => {
                         <tr key={idx}>
                           <td>{name}</td>
                           <td align="right">
-                            {ledgers[name].debit
+                            {ledgers[name].debit > 0
                               ? "₹ " + ledgers[name].debit.toFixed(2)
                               : ""}
                           </td>
                           <td align="right">
-                            {ledgers[name].credit
+                            {ledgers[name].credit > 0
                               ? "₹ " + ledgers[name].credit.toFixed(2)
                               : ""}
                           </td>
@@ -143,12 +147,15 @@ const VoucherSearch = () => {
                   {/* ===== TOTAL ===== */}
                   <hr />
                   <div style={{ textAlign: "right", fontWeight: "bold" }}>
-                    Total : ₹{" "}
-                    {parseFloat(v.AMOUNT?.$numberDecimal || 0).toFixed(2)}
+                    Total : ₹ {Number(v.AMOUNT?.$numberDecimal || 0).toFixed(2)}
                   </div>
                 </div>
               );
             })}
+
+            {vouchers.length === 0 && (
+              <p>No vouchers found for this party.</p>
+            )}
           </div>
         </div>
       )}
