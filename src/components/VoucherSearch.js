@@ -8,38 +8,46 @@ const VoucherSearch = () => {
   const searchVouchers = async () => {
     if (!ledgerName) return;
 
-    const res = await fetch(
-      `https://tally-mongo-server.onrender.com/api/vouchers?ledger=${ledgerName}`
-    );
+    const res = await fetch("https://tally-mongo-server.onrender.com/api/vouchers");
     const data = await res.json();
 
-    setVouchers(data || []);
+    // ✅ show only vouchers where selected ledger exists
+    const filtered = (data || []).filter(v =>
+      (v.LEDGERENTRIES || []).some(le => le.LEDGERNAME === ledgerName)
+    );
+
+    setVouchers(filtered);
     setShowPopup(true);
   };
 
-  // 🔴 Group ledger entries (invoice fix)
+  // ✅ merge ledger entries + debit/credit by sign
   const getGroupedLedgers = (voucher) => {
     const grouped = {};
-    const party = voucher.PARTYLEDGERNAME;
 
     (voucher.LEDGERENTRIES || []).forEach(entry => {
       const name = entry.LEDGERNAME;
-      if (!grouped[name]) {
-        grouped[name] = { debit: 0, credit: 0 };
-      }
+      if (!grouped[name]) grouped[name] = { debit: 0, credit: 0 };
 
       let amt = entry.AMOUNT?.$numberDecimal
         ? parseFloat(entry.AMOUNT.$numberDecimal)
         : parseFloat(entry.AMOUNT);
 
-      if (entry.ISDEEMEDPOSITIVE) {
-        grouped[name].credit += Math.abs(amt);
-      } else {
+      if (isNaN(amt)) return;
+
+      if (amt < 0) {
         grouped[name].debit += Math.abs(amt);
+      } else {
+        grouped[name].credit += Math.abs(amt);
       }
     });
 
     return grouped;
+  };
+
+  const formatDate = (d) => {
+    if (!d) return "";
+    const date = new Date(d);
+    return date.toLocaleDateString("en-GB");
   };
 
   return (
@@ -61,14 +69,14 @@ const VoucherSearch = () => {
 
               return (
                 <div key={i} style={card}>
-                  {/* ================= HEADER ================= */}
+                  {/* ===== HEADER ===== */}
                   <div style={header}>
-                    <b>{v.VOUCHERTYPE} Invoice</b> &nbsp; No: {v.VOUCHERNUMBER}
-                    <br />
+                    <b>{v.VOUCHERTYPE}</b> &nbsp; No: {v.VOUCHERNUMBER}<br />
+                    Date: {formatDate(v.DATE)}<br />
                     Party: <b>{v.PARTYLEDGERNAME}</b>
                   </div>
 
-                  {/* ================= INVENTORY ================= */}
+                  {/* ===== INVENTORY FIRST ===== */}
                   {v.INVENTORYENTRIES &&
                     v.INVENTORYENTRIES.some(x => x.STOCKITEMNAME) && (
                       <>
@@ -103,7 +111,7 @@ const VoucherSearch = () => {
                       </>
                     )}
 
-                  {/* ================= LEDGERS ================= */}
+                  {/* ===== LEDGERS ===== */}
                   <hr />
                   <table width="100%">
                     <thead>
@@ -132,13 +140,11 @@ const VoucherSearch = () => {
                     </tbody>
                   </table>
 
-                  {/* ================= TOTAL ================= */}
+                  {/* ===== TOTAL ===== */}
                   <hr />
                   <div style={{ textAlign: "right", fontWeight: "bold" }}>
                     Total : ₹{" "}
-                    {parseFloat(
-                      v.AMOUNT?.$numberDecimal || 0
-                    ).toFixed(2)}
+                    {parseFloat(v.AMOUNT?.$numberDecimal || 0).toFixed(2)}
                   </div>
                 </div>
               );
@@ -150,7 +156,7 @@ const VoucherSearch = () => {
   );
 };
 
-/* ====== STYLES ====== */
+/* ===== STYLES ===== */
 const overlay = {
   position: "fixed",
   inset: 0,
