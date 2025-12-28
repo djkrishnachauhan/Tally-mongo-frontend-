@@ -7,18 +7,33 @@ const VoucherSearch = () => {
   const [showPopup, setShowPopup] = useState(false);
 
   // ================= FETCH LEDGER LIST =================
-  useEffect(() => {
-    fetchLedgers();
-  }, []);
 
-  const fetchLedgers = async () => {
-    const res = await fetch("https://tally-mongo-server.onrender.com/api/ledgers");
+useEffect(() => {
+  fetchLedgerList();
+}, []);
+
+const fetchLedgerList = async () => {
+  try {
+    const res = await fetch(
+      "https://tally-mongo-server.onrender.com/api/ledgers"
+    );
     const data = await res.json();
 
-    // ✅ only unique ledger names
-    const names = [...new Set((data || []).map(l => l.NAME).filter(Boolean))];
-    setLedgerList(names.sort());
-  };
+    // ✅ sirf ledger NAME, unique & non-empty
+    const names = [
+      ...new Set(
+        (data || [])
+          .map(l => l.NAME)
+          .filter(n => n && n.trim() !== "")
+      )
+    ].sort();
+
+    setLedgerList(names);
+  } catch (err) {
+    console.error("Ledger fetch error", err);
+  }
+};
+  
 
   // ================= SEARCH VOUCHERS =================
   const searchVouchers = async () => {
@@ -61,17 +76,19 @@ const VoucherSearch = () => {
     <div>
       {/* ===== LEDGER DROPDOWN INPUT ===== */}
       <input
-        list="ledgerList"
-        placeholder="Select Ledger"
-        value={selectedLedger}
-        onChange={e => setSelectedLedger(e.target.value)}
-      />
+    <input
+  list="ledgerList"
+  placeholder="Select Ledger"
+  value={selectedLedger}
+  onChange={e => setSelectedLedger(e.target.value)}
+/>
 
-      <datalist id="ledgerList">
-        {ledgerList.map((l, i) => (
-          <option key={i} value={l} />
-        ))}
-      </datalist>
+<datalist id="ledgerList">
+  {ledgerList.map((name, i) => (
+    <option key={i} value={name} />
+  ))}
+</datalist>
+  
 
       <button onClick={searchVouchers}>Search</button>
 
