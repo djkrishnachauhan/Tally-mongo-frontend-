@@ -75,7 +75,6 @@ const fetchLedgerList = async () => {
   return (
     <div>
       {/* ===== LEDGER DROPDOWN INPUT ===== */}
-      <input
     <input
   list="ledgerList"
   placeholder="Select Ledger"
