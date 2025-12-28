@@ -1,126 +1,135 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 const VoucherSearch = () => {
-  const [partyName, setPartyName] = useState("");
+  const [ledgerList, setLedgerList] = useState([]);
+  const [selectedLedger, setSelectedLedger] = useState("");
   const [vouchers, setVouchers] = useState([]);
   const [showPopup, setShowPopup] = useState(false);
 
-  // ================= SEARCH (PARTY WISE ONLY) =================
+  // ================= FETCH LEDGER LIST =================
+  useEffect(() => {
+    fetchLedgers();
+  }, []);
+
+  const fetchLedgers = async () => {
+    const res = await fetch("https://tally-mongo-server.onrender.com/api/ledgers");
+    const data = await res.json();
+
+    // ✅ only unique ledger names
+    const names = [...new Set((data || []).map(l => l.NAME).filter(Boolean))];
+    setLedgerList(names.sort());
+  };
+
+  // ================= SEARCH VOUCHERS =================
   const searchVouchers = async () => {
-    if (!partyName) return;
+    if (!selectedLedger) return;
 
     const res = await fetch("https://tally-mongo-server.onrender.com/api/vouchers");
     const data = await res.json();
 
-    // ✅ ONLY party-wise filter
+    // ✅ ONLY selected ledger vouchers
     const filtered = (data || []).filter(
-      v => v.PARTYLEDGERNAME === partyName
+      v => v.PARTYLEDGERNAME === selectedLedger
     );
 
     setVouchers(filtered);
     setShowPopup(true);
   };
 
-  // ================= LEDGER GROUPING (SIGN BASED) =================
-  const getGroupedLedgers = (voucher) => {
-    const grouped = {};
+  // ================= LEDGER GROUPING =================
+  const groupLedgers = (voucher) => {
+    const map = {};
 
-    (voucher.LEDGERENTRIES || []).forEach(entry => {
-      const name = entry.LEDGERNAME;
-      if (!grouped[name]) {
-        grouped[name] = { debit: 0, credit: 0 };
-      }
+    (voucher.LEDGERENTRIES || []).forEach(e => {
+      const name = e.LEDGERNAME;
+      if (!map[name]) map[name] = { debit: 0, credit: 0 };
 
-      let rawAmount = 0;
+      const amt = Number(e.AMOUNT?.$numberDecimal || e.AMOUNT || 0);
+      if (!amt) return;
 
-      if (entry.AMOUNT && typeof entry.AMOUNT === "object") {
-        rawAmount = Number(entry.AMOUNT.$numberDecimal);
-      } else {
-        rawAmount = Number(entry.AMOUNT);
-      }
-
-      if (isNaN(rawAmount) || rawAmount === 0) return;
-
-      // 🔴 FINAL RULE
-      if (rawAmount < 0) {
-        grouped[name].debit += Math.abs(rawAmount);
-      } else {
-        grouped[name].credit += rawAmount;
-      }
+      if (amt < 0) map[name].debit += Math.abs(amt);
+      else map[name].credit += amt;
     });
 
-    return grouped;
+    return map;
   };
 
-  const formatDate = (d) => {
-    if (!d) return "";
-    return new Date(d).toLocaleDateString("en-GB");
-  };
+  const formatDate = d =>
+    d ? new Date(d).toLocaleDateString("en-GB") : "";
 
   return (
     <div>
+      {/* ===== LEDGER DROPDOWN INPUT ===== */}
       <input
-        placeholder="Enter Party Name"
-        value={partyName}
-        onChange={e => setPartyName(e.target.value)}
+        list="ledgerList"
+        placeholder="Select Ledger"
+        value={selectedLedger}
+        onChange={e => setSelectedLedger(e.target.value)}
       />
+
+      <datalist id="ledgerList">
+        {ledgerList.map((l, i) => (
+          <option key={i} value={l} />
+        ))}
+      </datalist>
+
       <button onClick={searchVouchers}>Search</button>
 
+      {/* ================= POPUP ================= */}
       {showPopup && (
         <div style={overlay}>
           <div style={popup}>
             <button onClick={() => setShowPopup(false)}>✖</button>
 
             {vouchers.map((v, i) => {
-              const ledgers = getGroupedLedgers(v);
+              const ledgers = groupLedgers(v);
 
               return (
                 <div key={i} style={card}>
-                  {/* ===== HEADER ===== */}
+                  {/* HEADER */}
                   <div style={header}>
-                    <b>{v.VOUCHERTYPE}</b> &nbsp; No: {v.VOUCHERNUMBER}<br />
+                    <b>{v.VOUCHERTYPE}</b> No: {v.VOUCHERNUMBER}<br />
                     Date: {formatDate(v.DATE)}<br />
                     Party: <b>{v.PARTYLEDGERNAME}</b>
                   </div>
 
-                  {/* ===== INVENTORY FIRST ===== */}
-                  {v.INVENTORYENTRIES &&
-                    v.INVENTORYENTRIES.some(it => it.STOCKITEMNAME) && (
-                      <>
-                        <hr />
-                        <table width="100%">
-                          <thead>
-                            <tr>
-                              <th align="left">Item</th>
-                              <th>Qty</th>
-                              <th>Rate</th>
-                              <th align="right">Amount</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {v.INVENTORYENTRIES.map((it, idx) =>
-                              it.STOCKITEMNAME ? (
-                                <tr key={idx}>
-                                  <td>{it.STOCKITEMNAME}</td>
-                                  <td>{it.BILLEDQTY}</td>
-                                  <td>{it.RATE}</td>
-                                  <td align="right">
-                                    ₹ {Number(it.AMOUNT?.$numberDecimal || 0).toFixed(2)}
-                                  </td>
-                                </tr>
-                              ) : null
-                            )}
-                          </tbody>
-                        </table>
-                      </>
-                    )}
+                  {/* INVENTORY */}
+                  {v.INVENTORYENTRIES?.some(i => i.STOCKITEMNAME) && (
+                    <>
+                      <hr />
+                      <table width="100%">
+                        <thead>
+                          <tr>
+                            <th align="left">Item</th>
+                            <th>Qty</th>
+                            <th>Rate</th>
+                            <th align="right">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {v.INVENTORYENTRIES.map((it, idx) =>
+                            it.STOCKITEMNAME ? (
+                              <tr key={idx}>
+                                <td>{it.STOCKITEMNAME}</td>
+                                <td>{it.BILLEDQTY}</td>
+                                <td>{it.RATE}</td>
+                                <td align="right">
+                                  ₹ {Number(it.AMOUNT?.$numberDecimal || 0).toFixed(2)}
+                                </td>
+                              </tr>
+                            ) : null
+                          )}
+                        </tbody>
+                      </table>
+                    </>
+                  )}
 
-                  {/* ===== LEDGERS ===== */}
+                  {/* LEDGERS */}
                   <hr />
                   <table width="100%">
                     <thead>
                       <tr>
-                        <th align="left">Ledger Name</th>
+                        <th align="left">Ledger</th>
                         <th align="right">Debit</th>
                         <th align="right">Credit</th>
                       </tr>
@@ -130,12 +139,12 @@ const VoucherSearch = () => {
                         <tr key={idx}>
                           <td>{name}</td>
                           <td align="right">
-                            {ledgers[name].debit > 0
+                            {ledgers[name].debit
                               ? "₹ " + ledgers[name].debit.toFixed(2)
                               : ""}
                           </td>
                           <td align="right">
-                            {ledgers[name].credit > 0
+                            {ledgers[name].credit
                               ? "₹ " + ledgers[name].credit.toFixed(2)
                               : ""}
                           </td>
@@ -144,7 +153,6 @@ const VoucherSearch = () => {
                     </tbody>
                   </table>
 
-                  {/* ===== TOTAL ===== */}
                   <hr />
                   <div style={{ textAlign: "right", fontWeight: "bold" }}>
                     Total : ₹ {Number(v.AMOUNT?.$numberDecimal || 0).toFixed(2)}
@@ -154,7 +162,7 @@ const VoucherSearch = () => {
             })}
 
             {vouchers.length === 0 && (
-              <p>No vouchers found for this party.</p>
+              <p>No vouchers found.</p>
             )}
           </div>
         </div>
@@ -168,15 +176,15 @@ const overlay = {
   position: "fixed",
   inset: 0,
   background: "rgba(0,0,0,0.6)",
-  overflow: "auto",
-  zIndex: 999
+  zIndex: 999,
+  overflow: "auto"
 };
 
 const popup = {
   background: "#fff",
+  width: "85%",
   margin: "30px auto",
-  padding: "20px",
-  width: "85%"
+  padding: "20px"
 };
 
 const card = {
@@ -186,8 +194,8 @@ const card = {
 };
 
 const header = {
-  marginBottom: "10px",
-  fontWeight: "bold"
+  fontWeight: "bold",
+  marginBottom: "10px"
 };
 
 export default VoucherSearch;
